@@ -1,8 +1,8 @@
 import threading
 import urllib.parse
-
 from datetime import datetime
 from typing import List
+
 from .. import Logger, ReporterException
 from ..client.api_v1_client import ApiV1Client
 from ..client.base_api_client import BaseApiClient
@@ -32,26 +32,34 @@ class QaseTestOps:
         self.complete_after_run = self.config.testops.run.complete
         self.environment = None
 
-        self.batch_size = min(2000, max(1, int(self.config.testops.batch.size or DEFAULT_BATCH_SIZE)))
-        self.send_semaphore = threading.Semaphore(DEFAULT_THREAD_COUNT)  # Semaphore to limit concurrent sends
+        self.batch_size = min(
+            2000, max(1, int(self.config.testops.batch.size or DEFAULT_BATCH_SIZE))
+        )
+        self.send_semaphore = threading.Semaphore(
+            DEFAULT_THREAD_COUNT
+        )  # Semaphore to limit concurrent sends
         self.lock = threading.Lock()
         self.count_running_threads = 0
 
         environment = self.config.environment
         if environment:
-            if isinstance(environment, int) or (isinstance(environment, str) and environment.isnumeric()):
+            if isinstance(environment, int) or (
+                isinstance(environment, str) and environment.isnumeric()
+            ):
                 self.environment = environment
             elif isinstance(environment, str):
-                self.environment = self.client.get_environment(environment, self.project_code)
+                self.environment = self.client.get_environment(
+                    environment, self.project_code
+                )
 
         run_title = self.config.testops.run.title
-        if run_title and run_title != '':
+        if run_title and run_title != "":
             self.run_title = run_title
         else:
             self.run_title = "Automated Run {}".format(str(datetime.now()))
 
         run_description = self.config.testops.run.description
-        if run_description and run_description != '':
+        if run_description and run_description != "":
             self.run_description = run_description
         else:
             self.run_description = "Automated Run {}".format(str(datetime.now()))
@@ -71,6 +79,7 @@ class QaseTestOps:
     def _prepare_client(self) -> BaseApiClient:
         if self.config.testops.use_v2:
             from ..client.api_v2_client import ApiV2Client
+
             return ApiV2Client(self.config, self.logger)
         return ApiV1Client(self.config, self.logger)
 
@@ -81,7 +90,9 @@ class QaseTestOps:
                 self.processed.extend(results)
         except Exception as e:
             with self.lock:
-                self.logger.log(f"Error at sending results for run {self.run_id}: {e}", "error")
+                self.logger.log(
+                    f"Error at sending results for run {self.run_id}: {e}", "error"
+                )
             raise  # Re-raise the exception to be caught by the thread handler
         finally:
             self.count_running_threads -= 1
@@ -96,7 +107,9 @@ class QaseTestOps:
             self.results = []
 
             # Start a new thread for sending results
-            send_thread = threading.Thread(target=self._send_results_threaded, args=(results_to_send,))
+            send_thread = threading.Thread(
+                target=self._send_results_threaded, args=(results_to_send,)
+            )
             send_thread.start()
         else:
             self.logger.log("No results to send", "info")
@@ -107,13 +120,23 @@ class QaseTestOps:
     # Lifecycle methods
     def start_run(self) -> str:
         if self.plan_id and not self.run_id:
-            self.run_id = self.client.create_test_run(project_code=self.project_code, title=self.run_title,
-                                                      description=self.run_description, plan_id=self.plan_id,
-                                                      environment_id=self.environment)
+            self.run_id = self.client.create_test_run(
+                project_code=self.project_code,
+                title=self.run_title,
+                description=self.run_description,
+                plan_id=self.plan_id,
+                environment_id=self.environment,
+            )
         if not self.run_id and not self.plan_id:
-            self.run_id = self.client.create_test_run(project_code=self.project_code, title=self.run_title,
-                                                      description=self.run_description, environment_id=self.environment)
-        if self.run_id and not self.client.check_test_run(self.project_code, self.run_id):
+            self.run_id = self.client.create_test_run(
+                project_code=self.project_code,
+                title=self.run_title,
+                description=self.run_description,
+                environment_id=self.environment,
+            )
+        if self.run_id and not self.client.check_test_run(
+            self.project_code, self.run_id
+        ):
             raise ReporterException("Unable to find given test run.")
         return self.run_id
 
@@ -125,12 +148,16 @@ class QaseTestOps:
                 pass
             self.client.complete_run(self.project_code, self.run_id)
 
+    def make_public_report(self) -> str:
+        result = self.client.make_public_report(self.project_code, self.run_id)
+        return result.url
+
     def complete_worker(self) -> None:
         if len(self.results) > 0:
             self._send_results()
 
     def add_result(self, result: Result) -> None:
-        if result.get_status() == 'failed':
+        if result.get_status() == "failed":
             self.__show_link(result.testops_id, result.title)
         self.results.append(result)
         if len(self.results) >= self.batch_size:
@@ -155,7 +182,7 @@ class QaseTestOps:
 
     @staticmethod
     def __get_host(host: str):
-        if host == 'qase.io':
-            return 'https://app.qase.io'
+        if host == "qase.io":
+            return "https://app.qase.io"
 
         return f'https://{host.replace("api", "app")}'

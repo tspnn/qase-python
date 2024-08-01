@@ -1,15 +1,27 @@
 from typing import Dict, Union
 
 import certifi
-from qase.api_client_v1 import ApiClient, ProjectsApi, Project, EnvironmentsApi, RunsApi, AttachmentsApi, \
-    AttachmentGet, RunCreate, ResultsApi, ResultcreateBulk
+from qase.api_client_v1 import (
+    ApiClient,
+    AttachmentGet,
+    AttachmentsApi,
+    EnvironmentsApi,
+    Project,
+    ProjectsApi,
+    ResultcreateBulk,
+    ResultsApi,
+    RunCreate,
+    RunsApi,
+)
 from qase.api_client_v1.configuration import Configuration
+from qase.api_client_v1.models import RunPublic
+
 from .. import Logger
-from .base_api_client import BaseApiClient
 from ..exceptions.reporter import ReporterException
 from ..models import Attachment, Result, Step
 from ..models.config.qaseconfig import QaseConfig
 from ..models.step import StepType
+from .base_api_client import BaseApiClient
 
 
 class ApiV1Client(BaseApiClient):
@@ -20,15 +32,15 @@ class ApiV1Client(BaseApiClient):
         try:
             self.logger.log_debug("Preparing API client")
             configuration = Configuration()
-            configuration.api_key['TokenAuth'] = self.config.testops.api.token
+            configuration.api_key["TokenAuth"] = self.config.testops.api.token
             configuration.ssl_ca_cert = certifi.where()
             host = self.config.testops.api.host
-            if host == 'qase.io':
-                configuration.host = f'https://api.{host}/v1'
-                self.web = f'https://app.{host}'
+            if host == "qase.io":
+                configuration.host = f"https://api.{host}/v1"
+                self.web = f"https://app.{host}"
             else:
-                configuration.host = f'https://api-{host}/v1'
-                self.web = f'https://{host}'
+                configuration.host = f"https://api-{host}/v1"
+                self.web = f"https://{host}"
 
             self.client = ApiClient(configuration)
             self.logger.log_debug("API client prepared")
@@ -40,12 +52,16 @@ class ApiV1Client(BaseApiClient):
         try:
             self.logger.log_debug(f"Getting project {project_code}")
             response = ProjectsApi(self.client).get_project(code=project_code)
-            if hasattr(response, 'result'):
-                self.logger.log_debug(f"Project {project_code} found: {response.result.to_json()}")
+            if hasattr(response, "result"):
+                self.logger.log_debug(
+                    f"Project {project_code} found: {response.result.to_json()}"
+                )
                 return response.result
             raise ReporterException("Unable to find given project code")
         except Exception as e:
-            self.logger.log("Exception when calling ProjectApi->get_project: %s\n" % e, "error")
+            self.logger.log(
+                "Exception when calling ProjectApi->get_project: %s\n" % e, "error"
+            )
             raise ReporterException("Exception when calling ProjectApi")
 
     def get_environment(self, environment: str, project_code: str) -> Union[str, None]:
@@ -53,15 +69,20 @@ class ApiV1Client(BaseApiClient):
             self.logger.log_debug(f"Getting environment {environment}")
             api_instance = EnvironmentsApi(self.client)
             response = api_instance.get_environments(code=project_code)
-            if hasattr(response, 'result') and hasattr(response.result, 'entities'):
+            if hasattr(response, "result") and hasattr(response.result, "entities"):
                 for env in response.result.entities:
                     if env.slug == environment:
-                        self.logger.log_debug(f"Environment {environment} found: {env.to_json()}")
+                        self.logger.log_debug(
+                            f"Environment {environment} found: {env.to_json()}"
+                        )
                         return env.id
             self.logger.log_debug(f"Environment {environment} not found")
             return None
         except Exception as e:
-            self.logger.log("Exception when calling EnvironmentsApi->get_environments: %s\n" % e, "error")
+            self.logger.log(
+                "Exception when calling EnvironmentsApi->get_environments: %s\n" % e,
+                "error",
+            )
             raise ReporterException(e)
 
     def complete_run(self, project_code: str, run_id: str) -> None:
@@ -78,11 +99,29 @@ class ApiV1Client(BaseApiClient):
             self.logger.log(f"Error at completing run {run_id}: {e}", "error")
             raise ReporterException(e)
 
-    def _upload_attachment(self, project_code: str, attachment: Attachment) -> Union[AttachmentGet, None]:
+    def make_public_report(self, project_code: str, run_id: str) -> str:
+        api_runs = RunsApi(self.client)
         try:
-            self.logger.log_debug(f"Uploading attachment {attachment.id} for project {project_code}")
+            res = api_runs.update_run_publicity(
+                project_code, int(run_id), RunPublic(status=True)
+            )
+
+            return res.result
+        except Exception as e:
+            self.logger.log(f"Error at making report public: {e}", "error")
+            raise ReporterException(e)
+
+    def _upload_attachment(
+        self, project_code: str, attachment: Attachment
+    ) -> Union[AttachmentGet, None]:
+        try:
+            self.logger.log_debug(
+                f"Uploading attachment {attachment.id} for project {project_code}"
+            )
             attach_api = AttachmentsApi(self.client)
-            response = attach_api.upload_attachment(project_code, file=[attachment.get_for_upload()])
+            response = attach_api.upload_attachment(
+                project_code, file=[attachment.get_for_upload()]
+            )
 
             return response.result
 
@@ -90,23 +129,34 @@ class ApiV1Client(BaseApiClient):
             self.logger.log(f"Error at uploading attachment: {e}", "error")
             raise ReporterException(e)
 
-    def create_test_run(self, project_code: str, title: str, description: str, plan_id=None,
-                        environment_id=None) -> str:
+    def create_test_run(
+        self,
+        project_code: str,
+        title: str,
+        description: str,
+        plan_id=None,
+        environment_id=None,
+    ) -> str:
         kwargs = dict(
             title=title,
             description=description,
             environment_id=(int(environment_id) if environment_id else None),
             plan_id=(int(plan_id) if plan_id else plan_id),
-            is_autotest=True
+            is_autotest=True,
         )
         self.logger.log_debug(f"Creating test run with parameters: {kwargs}")
         try:
             result = RunsApi(self.client).create_run(
                 code=project_code,
-                run_create=RunCreate(**{k: v for k, v in kwargs.items() if v is not None})
+                run_create=RunCreate(
+                    **{k: v for k, v in kwargs.items() if v is not None}
+                ),
             )
 
-            self.logger.log(f"Test run was created: {self.web}/run/{project_code}/dashboard/{result.result.id}", "info")
+            self.logger.log(
+                f"Test run was created: {self.web}/run/{project_code}/dashboard/{result.result.id}",
+                "info",
+            )
 
             return result.result.id
 
@@ -123,14 +173,14 @@ class ApiV1Client(BaseApiClient):
 
     def send_results(self, project_code: str, run_id: str, results: []) -> None:
         api_results = ResultsApi(self.client)
-        results_to_send = [self._prepare_result(project_code, result) for result in results]
+        results_to_send = [
+            self._prepare_result(project_code, result) for result in results
+        ]
         self.logger.log_debug(f"Sending results for run {run_id}: {results_to_send}")
         api_results.create_result_bulk(
             code=project_code,
             id=run_id,
-            resultcreate_bulk=ResultcreateBulk(
-                results=results_to_send
-            )
+            resultcreate_bulk=ResultcreateBulk(results=results_to_send),
         )
         self.logger.log_debug(f"Results for run {run_id} sent successfully")
 
@@ -147,9 +197,9 @@ class ApiV1Client(BaseApiClient):
 
         case_data = {
             "title": result.get_title(),
-            "description": result.get_field('description'),
-            "preconditions": result.get_field('preconditions'),
-            "postconditions": result.get_field('postconditions'),
+            "description": result.get_field("description"),
+            "preconditions": result.get_field("preconditions"),
+            "postconditions": result.get_field("postconditions"),
         }
 
         for key, param in result.params.items():
@@ -157,14 +207,14 @@ class ApiV1Client(BaseApiClient):
             if param == "":
                 result.params[key] = "empty"
 
-        if result.get_field('severity'):
-            case_data["severity"] = result.get_field('severity')
+        if result.get_field("severity"):
+            case_data["severity"] = result.get_field("severity")
 
-        if result.get_field('priority'):
-            case_data["priority"] = result.get_field('priority')
+        if result.get_field("priority"):
+            case_data["priority"] = result.get_field("priority")
 
-        if result.get_field('layer'):
-            case_data["layer"] = result.get_field('layer')
+        if result.get_field("layer"):
+            case_data["layer"] = result.get_field("layer")
 
         suite = None
         if result.get_suite_title():
@@ -206,48 +256,78 @@ class ApiV1Client(BaseApiClient):
         prepared_children = []
 
         try:
-            prepared_step = {"time": step.execution.duration, "status": step.execution.status}
+            prepared_step = {
+                "time": step.execution.duration,
+                "status": step.execution.status,
+            }
 
-            if step.execution.status == 'untested':
-                prepared_step["status"] = 'passed'
+            if step.execution.status == "untested":
+                prepared_step["status"] = "passed"
 
-            if step.execution.status == 'skipped':
-                prepared_step["status"] = 'blocked'
+            if step.execution.status == "skipped":
+                prepared_step["status"] = "blocked"
 
             if step.step_type == StepType.TEXT:
-                prepared_step['action'] = step.data.action
+                prepared_step["action"] = step.data.action
                 if step.data.expected_result:
-                    prepared_step['expected_result'] = step.data.expected_result
+                    prepared_step["expected_result"] = step.data.expected_result
 
             if step.step_type == StepType.REQUEST:
-                prepared_step['action'] = step.data.request_method + " " + step.data.request_url
+                prepared_step["action"] = (
+                    step.data.request_method + " " + step.data.request_url
+                )
                 if step.data.request_body:
                     step.attachments.append(
-                        Attachment(file_name='request_body.txt', content=step.data.request_body, mime_type='text/plain',
-                                   temporary=True))
+                        Attachment(
+                            file_name="request_body.txt",
+                            content=step.data.request_body,
+                            mime_type="text/plain",
+                            temporary=True,
+                        )
+                    )
                 if step.data.request_headers:
                     step.attachments.append(
-                        Attachment(file_name='request_headers.txt', content=step.data.request_headers,
-                                   mime_type='text/plain', temporary=True))
+                        Attachment(
+                            file_name="request_headers.txt",
+                            content=step.data.request_headers,
+                            mime_type="text/plain",
+                            temporary=True,
+                        )
+                    )
                 if step.data.response_body:
-                    step.attachments.append(Attachment(file_name='response_body.txt', content=step.data.response_body,
-                                                       mime_type='text/plain', temporary=True))
+                    step.attachments.append(
+                        Attachment(
+                            file_name="response_body.txt",
+                            content=step.data.response_body,
+                            mime_type="text/plain",
+                            temporary=True,
+                        )
+                    )
                 if step.data.response_headers:
                     step.attachments.append(
-                        Attachment(file_name='response_headers.txt', content=step.data.response_headers,
-                                   mime_type='text/plain', temporary=True))
+                        Attachment(
+                            file_name="response_headers.txt",
+                            content=step.data.response_headers,
+                            mime_type="text/plain",
+                            temporary=True,
+                        )
+                    )
 
             if step.step_type == StepType.GHERKIN:
-                prepared_step['action'] = step.data.keyword
+                prepared_step["action"] = step.data.keyword
 
             if step.step_type == StepType.SLEEP:
-                prepared_step['action'] = f"Sleep for {step.data.duration} seconds"
+                prepared_step["action"] = f"Sleep for {step.data.duration} seconds"
 
             if step.attachments:
                 uploaded_attachments = []
                 for file in step.attachments:
-                    uploaded_attachments.extend(self._upload_attachment(project_code, file))
-                prepared_step['attachments'] = [attach.hash for attach in uploaded_attachments]
+                    uploaded_attachments.extend(
+                        self._upload_attachment(project_code, file)
+                    )
+                prepared_step["attachments"] = [
+                    attach.hash for attach in uploaded_attachments
+                ]
 
             if step.steps:
                 for substep in step.steps:
