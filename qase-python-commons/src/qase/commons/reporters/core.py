@@ -1,16 +1,14 @@
-import os
 import json
+import os
 import time
+from typing import Union
 
 from ..config import ConfigManager
 from ..logger import Logger
-
+from ..models import Attachment, Result, Runtime
+from ..models.config.qaseconfig import Mode
 from .report import QaseReport
 from .testops import QaseTestOps
-
-from ..models import Result, Attachment, Runtime
-from ..models.config.qaseconfig import Mode
-from typing import Union
 
 """
     CoreReporter is a facade for all reporters and it is used to initialize and manage them.
@@ -40,8 +38,10 @@ class QaseCoreReporter:
                 self._load_testops_plan()
                 self.reporter = QaseTestOps(config=self.config, logger=self.logger)
             except Exception as e:
-                self.logger.log('Failed to initialize TestOps reporter. Using fallback.', 'info')
-                self.logger.log(e, 'error')
+                self.logger.log(
+                    "Failed to initialize TestOps reporter. Using fallback.", "info"
+                )
+                self.logger.log(e, "error")
                 self.reporter = self.fallback
         elif mode == Mode.report:
             self.reporter = QaseReport(config=self.config, logger=self.logger)
@@ -58,8 +58,8 @@ class QaseCoreReporter:
                 self.overhead += time.time() - ts
                 return run_id
             except Exception as e:
-                self.logger.log('Failed to start run, disabling reporting', 'info')
-                self.logger.log(e, 'error')
+                self.logger.log("Failed to start run, disabling reporting", "info")
+                self.logger.log(e, "error")
                 self.reporter = None
 
     def complete_run(self) -> None:
@@ -70,11 +70,23 @@ class QaseCoreReporter:
                 self.reporter.complete_run()
                 self.logger.log_debug("Run completed")
                 self.overhead += time.time() - ts
-                self.logger.log(f"Overhead for Qase Report: {round(self.overhead * 1000)}ms", 'info')
+                self.logger.log(
+                    f"Overhead for Qase Report: {round(self.overhead * 1000)}ms", "info"
+                )
             except Exception as e:
                 # We don't want to disable reporting here
-                self.logger.log('Failed to complete run', 'info')
-                self.logger.log(e, 'error')
+                self.logger.log("Failed to complete run", "info")
+                self.logger.log(e, "error")
+
+    def make_public_report(self):
+        if self.reporter:
+            try:
+                return self.reporter.make_public_report()
+            except Exception as e:
+                # Log error and run fallback
+                self.logger.log("Failed to make public report", "info")
+                self.logger.log(e, "error")
+                self._run_fallback()
 
     def add_result(self, result: Result) -> None:
         if self.reporter:
@@ -86,8 +98,8 @@ class QaseCoreReporter:
                 self.overhead += time.time() - ts
             except Exception as e:
                 # Log error, disable reporting and continue
-                self.logger.log(f'Failed to add result {result.get_title()}', 'info')
-                self.logger.log(e, 'error')
+                self.logger.log(f"Failed to add result {result.get_title()}", "info")
+                self.logger.log(e, "error")
                 self._run_fallback()
 
     def add_attachment(self, attachment: Attachment) -> None:
@@ -100,8 +112,8 @@ class QaseCoreReporter:
                 self.overhead += time.time() - ts
             except Exception as e:
                 # Log error and run fallback
-                self.logger.log('Failed to add attachment', 'info')
-                self.logger.log(e, 'error')
+                self.logger.log("Failed to add attachment", "info")
+                self.logger.log(e, "error")
                 self._run_fallback()
 
     def setup_profilers(self, runtime: Runtime) -> None:
@@ -111,14 +123,18 @@ class QaseCoreReporter:
             if profiler == "network":
                 # Lazy import
                 from ..profilers import NetworkProfilerSingleton
-                NetworkProfilerSingleton.init(runtime=runtime,
-                                              skip_domain=self.config.testops.api.host)
+
+                NetworkProfilerSingleton.init(
+                    runtime=runtime, skip_domain=self.config.testops.api.host
+                )
                 self.profilers.append(NetworkProfilerSingleton.get_instance())
             if profiler == "sleep":
                 from ..profilers import SleepProfiler
+
                 self.profilers.append(SleepProfiler(runtime=runtime))
             if profiler == "db":
                 from ..profilers import DbProfiler
+
                 self.profilers.append(DbProfiler(runtime=runtime))
 
     def enable_profilers(self) -> None:
@@ -137,8 +153,8 @@ class QaseCoreReporter:
                 self.reporter.set_run_id(run_id)
             except Exception as e:
                 # Log error and run fallback
-                self.logger.log('Failed to set run id', 'info')
-                self.logger.log(e, 'error')
+                self.logger.log("Failed to set run id", "info")
+                self.logger.log(e, "error")
                 self._run_fallback()
 
     def complete_worker(self) -> None:
@@ -147,8 +163,8 @@ class QaseCoreReporter:
                 self.reporter.complete_worker()
             except Exception as e:
                 # Log error and run fallback
-                self.logger.log('Failed to complete worker', 'info')
-                self.logger.log(e, 'error')
+                self.logger.log("Failed to complete worker", "info")
+                self.logger.log(e, "error")
                 self._run_fallback()
 
     def _run_fallback(self) -> None:
@@ -162,8 +178,8 @@ class QaseCoreReporter:
                 self.fallback = None
             except Exception as e:
                 # Log error, disable reporting and continue
-                self.logger.log('Failed to run fallback', 'info')
-                self.logger.log(e, 'error')
+                self.logger.log("Failed to run fallback", "info")
+                self.logger.log(e, "error")
                 self.reporter = None
 
     def _load_testops_plan(self) -> None:
@@ -174,13 +190,14 @@ class QaseCoreReporter:
                 # Load test plan data from Qase TestOps
                 loader = TestOpsPlanLoader(
                     api_token=self.config.testops.api.token,
-                    host=self.config.testops.api.host
+                    host=self.config.testops.api.host,
                 )
-                self.execution_plan = loader.load(self.config.testops.project,
-                                                  int(self.config.testops.plan.id))
+                self.execution_plan = loader.load(
+                    self.config.testops.project, int(self.config.testops.plan.id)
+                )
         except Exception as e:
-            self.logger.log('Failed to load test plan from Qase TestOps', 'info')
-            self.logger.log(e, 'error')
+            self.logger.log("Failed to load test plan from Qase TestOps", "info")
+            self.logger.log(e, "error")
 
     # TODO: won't work, need to fix
     # def _selective_execution_setup(self) -> list:
