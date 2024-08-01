@@ -21,11 +21,14 @@ PYTEST_TO_QASE_STATUS = {
 }
 
 try:
-    from xdist import is_xdist_controller
+    from xdist import get_xdist_worker_id, is_xdist_controller
 except ImportError:
 
     def is_xdist_controller(*args, **kwargs):
         return True
+
+    def get_xdist_worker_id(*args, **kwargs):
+        return "master"
 
 
 try:
@@ -89,10 +92,12 @@ class QasePytestPlugin:
     def pytest_sessionfinish(self, session, exitstatus):
         if is_xdist_controller(session):
             QasePytestPlugin.drop_run_id()
-            public_report_url = self.reporter.make_public_report()
-            logging.info(f"[Qase] Public report URL: {public_report_url}")
         else:
             self.reporter.complete_worker()
+
+        if get_xdist_worker_id(session) == "master":
+            public_report_url = self.reporter.make_public_report()
+            logging.info(f"[Qase] Public report URL: {public_report_url}")
 
         self.reporter.complete_run()
 
